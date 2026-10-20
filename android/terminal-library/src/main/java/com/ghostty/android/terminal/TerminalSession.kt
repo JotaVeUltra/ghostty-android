@@ -4,11 +4,15 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 
@@ -17,8 +21,13 @@ import java.io.OutputStreamWriter
  * Handles PTY communication and terminal state.
  */
 class TerminalSession(
-    private val shellCommand: String = "/system/bin/sh"
+    private val shellCommand: String = "/system/bin/sh",
+    private val homeDir: File? = null
 ) {
+    /** Terminal size, passed to the PTY helper before it starts the shell. */
+    var cols: Int = 80
+    var rows: Int = 24
+
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
     private var process: Process? = null
@@ -27,6 +36,10 @@ class TerminalSession(
 
     private val _output = MutableStateFlow("")
     val output: StateFlow<String> = _output.asStateFlow()
+
+    // Incremental output chunks, suitable for feeding a terminal renderer.
+    private val _chunks = MutableSharedFlow<String>(replay = 64, extraBufferCapacity = 256)
+    val chunks: SharedFlow<String> = _chunks.asSharedFlow()
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -41,9 +54,20 @@ class TerminalSession(
         }
 
         try {
-            // Start the shell process
-            val processBuilder = ProcessBuilder(shellCommand)
+            // Start the shell process. "-i" gives us a prompt even without a PTY.
+            val processBuilder = ProcessBuilder(shellCommand, "-i")
             processBuilder.redirectErrorStream(true)
+            processBuilder.environment()["TERM"] = "xterm-256color"
+            processBuilder.environment()["COLORTERM"] = "truecolor"
+            processBuilder.environment()["COLUMNS"] = cols.toString()
+            processBuilder.environment()["LINES"] = rows.toString()
+            homeDir?.let { home ->
+                home.mkdirs()
+                processBuilder.directory(home)
+                processBuilder.environment()["HOME"] = home.absolutePath
+                processBuilder.environment()["PWD"] = home.absolutePath
+                processBuilder.environment()["ENV"] = File(home, ".mkshrc").absolutePath
+            }
 
             process = processBuilder.start()
             writer = OutputStreamWriter(process!!.outputStream)
@@ -99,6 +123,9 @@ class TerminalSession(
                 // Update the output state
                 _output.value = outputBuilder.toString()
 
+                // Emit the incremental chunk for the terminal renderer.
+                _chunks.tryEmit(text)
+
                 // Limit output buffer size to prevent memory issues
                 if (outputBuilder.length > MAX_OUTPUT_SIZE) {
                     outputBuilder.delete(0, outputBuilder.length - MAX_OUTPUT_SIZE)
@@ -115,23 +142,41 @@ class TerminalSession(
      * Stop the session and clean up resources.
      */
     fun stop() {
-        cleanup()
+        // Never close the pipes on the main thread: BufferedReader.close()
+        // waits for the reader coroutine's lock, and that coroutine is blocked
+        // in read(). That deadlock otherwise causes an ANR on activity destroy.
+        scope.launch { cleanup() }
     }
 
     private fun cleanup() {
         _isRunning.value = false
 
-        try {
-            writer?.close()
-            reader?.close()
-            process?.destroy()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during cleanup", e)
-        }
-
+        // Detach the fields first so a concurrent start() cannot be clobbered.
+        val oldProcess = process
+        val oldWriter = writer
+        val oldReader = reader
+        process = null
         writer = null
         reader = null
-        process = null
+
+        // Destroy the process first so the blocking read unblocks before close.
+        try {
+            oldProcess?.destroy()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error destroying process", e)
+        }
+
+        try {
+            oldWriter?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing writer", e)
+        }
+
+        try {
+            oldReader?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing reader", e)
+        }
     }
 
     companion object {

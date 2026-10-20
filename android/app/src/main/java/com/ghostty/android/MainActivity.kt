@@ -1,18 +1,22 @@
 package com.ghostty.android
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.File
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ghostty.android.renderer.TerminalEventListener
 import com.ghostty.android.renderer.GhosttyGLSurfaceView
@@ -20,7 +24,6 @@ import com.ghostty.android.terminal.GhosttyBridge
 import com.ghostty.android.terminal.TerminalSession
 import com.ghostty.android.testing.TestRunner
 import com.ghostty.android.testing.TestSuite
-import com.ghostty.android.ui.InputToolbar
 import com.ghostty.android.ui.theme.GhosttyTheme
 
 class MainActivity : ComponentActivity() {
@@ -30,6 +33,9 @@ class MainActivity : ComponentActivity() {
     private var glSurfaceView: GhosttyGLSurfaceView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // The launch theme provides the splash window; switch to the normal
+        // theme before the activity draws its content.
+        setTheme(R.style.Theme_Ghostty)
         super.onCreate(savedInstanceState)
 
         // Keep screen on while terminal is active
@@ -39,38 +45,64 @@ class MainActivity : ComponentActivity() {
         ghosttyBridge = GhosttyBridge.getInstance()
         // TODO: Enable when JNI key encoder is implemented
         // ghosttyBridge.createKeyEncoder()
-        // Create terminal session
-        terminalSession = TerminalSession()
-        // TestRunner will be created when GL surface view is initialized
-        var testId = intent.getStringExtra("TEST_ID")
-        if (testId == null) {
-            testId = "basic_colors_fg"
+        // Create terminal session. The PTY helper is packaged as a native lib
+        // so it is executable from nativeLibraryDir.
+        val ptyHelper = File(applicationInfo.nativeLibraryDir, "libpty_shell.so")
+        val homeDir = getDir("home", MODE_PRIVATE)
+
+        // Create a default mksh profile on first run. Users can edit
+        // app_home/.mkshrc to change the prompt, aliases, history, etc.
+        val mkshrc = File(homeDir, ".mkshrc")
+        if (!mkshrc.exists()) {
+            mkshrc.writeText(
+                """
+                # Ghostty Android shell profile — edit freely.
+                HISTFILE="${'$'}HOME/.mksh_history"
+                HISTSIZE=1000
+                alias ll='ls -l'
+                alias la='ls -la'
+                alias l='ls -l'
+                alias home='cd ~'
+                PS1='${'$'}(basename "${'$'}PWD") ${'$'} '
+                """.trimIndent() + "\n"
+            )
         }
 
-        android.util.Log.i("MainActivity", "onCreate: testId=$testId")
+        terminalSession = TerminalSession(ptyHelper.absolutePath, homeDir)
 
         enableEdgeToEdge()
 
         setContent {
-            // Use remember and mutableStateOf so the Composable recomposes when testRunner is initialized
-            val testRunnerState = remember { mutableStateOf<TestRunner?>(null) }
-
             GhosttyTheme {
-                    TestModeScreen(
-                        testRunner = testRunnerState.value,
-                        onExitTestMode = {},
-                        onGLSurfaceViewCreated = { view ->
-                            glSurfaceView = view
-                            // Initialize test runner with the renderer from the GL surface view
-                            if (testRunnerState.value == null) {
-                                testRunnerState.value = TestRunner(view.getRenderer(), applicationContext)
+                TerminalScreen(
+                    onGLSurfaceViewCreated = { view ->
+                        glSurfaceView = view
+                        var started = false
+                        view.setEventListener(object : TerminalEventListener {
+                            override fun onSurfaceReady(cols: Int, rows: Int) {
+                                if (started) return
+                                started = true
+                                terminalSession.cols = cols
+                                terminalSession.rows = rows
+                                terminalSession.start()
+                                lifecycleScope.launch(Dispatchers.IO) {
+                                    terminalSession.chunks.collect { chunk ->
+                                        view.queueEvent {
+                                            view.getRenderer().processInput(chunk)
+                                        }
+                                        view.requestRender()
+                                    }
+                                }
                             }
-                        },
-                        testId = testId,
-                    )
-                }
+
+                            override fun onKeyboardOverlayProgress(offset: Float, maxOffset: Float) {}
+                            override fun onKeyboardOverlayStateChanged(expanded: Boolean) {}
+                        })
+                    }
+                )
             }
         }
+    }
 
     override fun onPause() {
         super.onPause()
@@ -89,40 +121,81 @@ class MainActivity : ComponentActivity() {
         terminalSession.stop()
         ghosttyBridge.cleanup()
     }
+
+    /**
+     * Handle mouse-wheel scrolling at the activity level so it works
+     * regardless of which view currently has focus.
+     */
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+            val vertical = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (vertical != 0f) {
+                glSurfaceView?.handleWheelScroll(vertical)
+                return true
+            }
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    /**
+     * Route hardware keys (e.g. scrcpy's keyboard) into the shell, since this
+     * device has no IME installed.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            val input = keyToInput(event)
+            if (input != null) {
+                terminalSession.writeInput(input)
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun keyToInput(event: KeyEvent): String? {
+        // Ctrl+A .. Ctrl+Z -> 0x01 .. 0x1A
+        if (event.isCtrlPressed &&
+            event.keyCode in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z
+        ) {
+            return (event.keyCode - KeyEvent.KEYCODE_A + 1).toChar().toString()
+        }
+
+        when (event.keyCode) {
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> return "\r"
+            KeyEvent.KEYCODE_DEL -> return "\u007F"
+            KeyEvent.KEYCODE_FORWARD_DEL -> return "\u001B[3~"
+            KeyEvent.KEYCODE_TAB -> return "\t"
+            KeyEvent.KEYCODE_ESCAPE -> return "\u001B"
+            KeyEvent.KEYCODE_DPAD_UP -> return "\u001B[A"
+            KeyEvent.KEYCODE_DPAD_DOWN -> return "\u001B[B"
+            KeyEvent.KEYCODE_DPAD_RIGHT -> return "\u001B[C"
+            KeyEvent.KEYCODE_DPAD_LEFT -> return "\u001B[D"
+            KeyEvent.KEYCODE_MOVE_HOME -> return "\u001B[H"
+            KeyEvent.KEYCODE_MOVE_END -> return "\u001B[F"
+            KeyEvent.KEYCODE_PAGE_UP -> return "\u001B[5~"
+            KeyEvent.KEYCODE_PAGE_DOWN -> return "\u001B[6~"
+            KeyEvent.KEYCODE_INSERT -> return "\u001B[2~"
+            // Let the system keep these.
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_VOLUME_UP,
+            KeyEvent.KEYCODE_VOLUME_DOWN,
+            KeyEvent.KEYCODE_POWER,
+            KeyEvent.KEYCODE_MENU -> return null
+        }
+
+        val c = event.unicodeChar
+        if (c == 0) return null
+        val text = String(Character.toChars(c))
+        return if (event.isAltPressed) "\u001B$text" else text
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(
-    session: TerminalSession,
-    onKeyPress: (String) -> Unit,
-    onEnterTestMode: () -> Unit,
     onGLSurfaceViewCreated: (GhosttyGLSurfaceView) -> Unit
 ) {
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val focusManager = LocalFocusManager.current
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Ghostty Terminal") },
-                actions = {
-                    // Test mode toggle button (debug only)
-                    IconButton(onClick = onEnterTestMode) {
-                        Text("TEST", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            )
-        },
-        bottomBar = {
-            InputToolbar(
-                onKeyPress = onKeyPress,
-                onShowKeyboard = {
-                    keyboardController?.show()
-                }
-            )
-        }
-    ) { paddingValues ->
+    Scaffold { paddingValues ->
         // Use AndroidView to embed the native OpenGL surface view
         AndroidView(
             factory = { context ->

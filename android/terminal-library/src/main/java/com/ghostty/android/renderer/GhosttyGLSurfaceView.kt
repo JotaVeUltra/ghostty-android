@@ -14,6 +14,7 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.Choreographer
 import android.view.GestureDetector
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.PixelCopy
 import android.view.VelocityTracker
@@ -462,17 +463,25 @@ class GhosttyGLSurfaceView @JvmOverloads constructor(
         renderer = GhosttyRenderer(context, currentFontSize.toInt())
         setRenderer(renderer)
 
+        // Keep the EGL context (and therefore the native terminal buffer)
+        // alive when the app is backgrounded. Without this, Android destroys
+        // the surface and the renderer starts with an empty screen on resume.
+        preserveEGLContextOnPause = true
+
         // Set up surface change callback to notify listener on main thread
         renderer.setOnSurfaceChangedCallback { cols, rows ->
             // Post to main thread since we're on GL thread
             post {
                 eventListener?.onSurfaceReady(cols, rows)
             }
+            // With RENDERMODE_WHEN_DIRTY, make sure a resize is drawn.
+            requestRender()
         }
 
-        // Set render mode to continuously for proof of concept
-        // TODO: Change to RENDERMODE_WHEN_DIRTY once we have proper terminal update callbacks
-        renderMode = RENDERMODE_CONTINUOUSLY
+        // Render on demand. Every terminal update, scroll, and animation frame
+        // calls requestRender(), so there is no need to redraw at 60 fps while
+        // the terminal is idle.
+        renderMode = RENDERMODE_WHEN_DIRTY
 
         // Initialize scroll gesture detector
         gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -887,6 +896,7 @@ class GhosttyGLSurfaceView @JvmOverloads constructor(
         Log.d(TAG, "onResumeView")
         onResume() // Resume the GL thread
         renderer.onResume()
+        requestRender()
 
         // Notify listener that surface has resumed, using post() to ensure
         // the GL thread has had time to fully resume before the callback
@@ -901,6 +911,40 @@ class GhosttyGLSurfaceView @JvmOverloads constructor(
      */
     private fun isInSystemGestureZone(x: Float): Boolean {
         return x < systemGestureInsetLeft || x > (width - systemGestureInsetRight)
+    }
+
+    /**
+     * Handle mouse-wheel / trackpad scrolling.
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!isInteractive) return super.onGenericMotionEvent(event)
+
+        if (event.actionMasked == MotionEvent.ACTION_SCROLL &&
+            event.isFromSource(InputDevice.SOURCE_CLASS_POINTER)
+        ) {
+            val vertical = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+            if (vertical != 0f) {
+                handleWheelScroll(vertical)
+                return true
+            }
+        }
+
+        return super.onGenericMotionEvent(event)
+    }
+
+    /**
+     * Scroll the terminal by a wheel/trackpad delta.
+     *
+     * Positive [vertical] is wheel-up, which moves towards scrollback.
+     */
+    fun handleWheelScroll(vertical: Float) {
+        if (vertical == 0f) return
+        val rows = if (abs(vertical) >= 1f) vertical.toInt()
+                   else if (vertical > 0f) 1 else -1
+        queueEvent {
+            renderer.scrollDelta(-rows * 3)
+            requestRender()
+        }
     }
 
     /**

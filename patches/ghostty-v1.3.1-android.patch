@@ -1,0 +1,56 @@
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 426660621..73c37c896 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -50,6 +50,11 @@ pub const Parser = terminal.Parser;
+ pub const Pin = PageList.Pin;
+ pub const Point = point.Point;
+ pub const RenderState = terminal.RenderState;
++
++// Re-export the renderer cursor-style helper for external renderers.
++pub const RendererCursorStyleOptions = @import("renderer/cursor.zig").StyleOptions;
++pub const RendererCursorStyle = @import("renderer/cursor.zig").Style;
++pub const rendererCursorStyle = @import("renderer/cursor.zig").style;
+ pub const Screen = terminal.Screen;
+ pub const ScreenSet = terminal.ScreenSet;
+ pub const Selection = terminal.Selection;
+diff --git a/src/terminal/formatter.zig b/src/terminal/formatter.zig
+index 062e3969a..99ff78774 100644
+--- a/src/terminal/formatter.zig
++++ b/src/terminal/formatter.zig
+@@ -684,7 +684,7 @@ pub const ScreenFormatter = struct {
+                         .y = last.y,
+                     };
+                 } else self.screen.pages.getTopLeft(.screen),
+-                discarding.count,
++                @intCast(discarding.count),
+             ) catch return error.WriteFailed;
+         }
+     }
+@@ -1230,7 +1230,7 @@ pub const PageFormatter = struct {
+                             &discarding.writer,
+                             &style,
+                         );
+-                        for (0..discarding.count) |_| map.map.append(map.alloc, .{
++                        for (0..@as(usize, @intCast(discarding.count))) |_| map.map.append(map.alloc, .{
+                             .x = x,
+                             .y = y,
+                         }) catch return error.WriteFailed;
+@@ -1287,7 +1287,7 @@ pub const PageFormatter = struct {
+                             &discarding.writer,
+                             uri,
+                         );
+-                        for (0..discarding.count) |_| map.map.append(map.alloc, .{
++                        for (0..@as(usize, @intCast(discarding.count))) |_| map.map.append(map.alloc, .{
+                             .x = x,
+                             .y = y,
+                         }) catch return error.WriteFailed;
+@@ -1305,7 +1305,7 @@ pub const PageFormatter = struct {
+                         if (self.point_map) |*map| {
+                             var discarding: std.Io.Writer.Discarding = .init(&.{});
+                             try self.writeCell(tag, &discarding.writer, cell);
+-                            for (0..discarding.count) |_| map.map.append(map.alloc, .{
++                            for (0..@as(usize, @intCast(discarding.count))) |_| map.map.append(map.alloc, .{
+                                 .x = x,
+                                 .y = y,
+                             }) catch return error.WriteFailed;

@@ -20,7 +20,7 @@ android {
 
         ndk {
             // Architectures we support
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            abiFilters += listOf("armeabi-v7a")
         }
     }
 
@@ -54,6 +54,11 @@ android {
     // which uses Makefile to build via Zig, not CMake
 
     packaging {
+        // Extract native libs so libpty_shell.so exists as an executable
+        // file in nativeLibraryDir.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
