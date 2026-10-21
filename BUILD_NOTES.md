@@ -1,7 +1,7 @@
 # Ghostty Android — build notes (J7 Prime, armv7)
 
 Built 2026-10-20 from `tapthaker/ghostty-android` @ `b68e170`
-("feat(renderer): Improve tint overlay...", 2026-01-16).
+("feat(renderer): Improve tint overlay...", 2026-01-16); finalized 2026-10-21.
 
 ## Result
 
@@ -13,8 +13,8 @@ Built 2026-10-20 from `tapthaker/ghostty-android` @ `b68e170`
   (release: 19 MB on disk; debug: 87 MB)
 - Native: `lib/armeabi-v7a/libghostty_renderer.so` (11 MB stripped),
   `libghostty-vt.so` (214 KB stripped), `libpty_shell.so` (5.6 KB)
-- Renderer initializes on Mali-T830, 118x16 grid, 420 DPI; 256-color palette
-  and SGR attributes render correctly.
+- Renderer initializes on Mali-T830, 120x29 grid (full screen), 420 DPI;
+  256-color palette and SGR attributes render correctly.
 - The app now boots into an **interactive terminal**: `/system/bin/sh -i` on a
   PTY, with echo, backspace, Ctrl+C and job control. Typed commands, `uname -a`
   and `id` were verified on-device.
@@ -25,6 +25,10 @@ Built 2026-10-20 from `tapthaker/ghostty-android` @ `b68e170`
   `FileNotFoundException: replay/dab597.log`: the replay asset was never
   committed to the repo (there is no `assets/` directory). All 33 actual
   rendering tests pass.
+- Fork: https://github.com/JotaVeUltra/ghostty-android
+- Release: https://github.com/JotaVeUltra/ghostty-android/releases/tag/j7prime-2026-10-20
+- The submodule stays at official Ghostty v1.3.1; the armv7 fixes are applied
+  from `patches/ghostty-v1.3.1-android.patch`.
 
 ## Security review
 

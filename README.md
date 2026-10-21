@@ -1,5 +1,12 @@
 # Ghostty Android
 
+> **J7 Prime / armv7 fork:** This branch targets the Samsung Galaxy J7 Prime
+> (SM-G610M, Android 8.1, `armeabi-v7a`). It builds Ghostty v1.3.1, runs
+> `/system/bin/sh` on a PTY, and adds a full-screen UI, launch splash, mksh
+> profile, and on-demand rendering. See [BUILD_NOTES.md](BUILD_NOTES.md) for
+> the toolchain and [the release](https://github.com/JotaVeUltra/ghostty-android/releases/tag/j7prime-2026-10-20)
+> for a signed APK.
+
 A high-performance, GPU-accelerated terminal emulator for Android using libghostty-vt for terminal parsing and Jetpack Compose Canvas for hardware-accelerated rendering.
 
 ## Project Vision
