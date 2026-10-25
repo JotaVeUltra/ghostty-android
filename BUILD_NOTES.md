@@ -27,6 +27,7 @@ Built 2026-10-20 from `tapthaker/ghostty-android` @ `b68e170`
   rendering tests pass.
 - Fork: https://github.com/JotaVeUltra/ghostty-android
 - Release: https://github.com/JotaVeUltra/ghostty-android/releases/tag/j7prime-2026-10-20
+- Remote access (ADB over Wi-Fi, scrcpy, SSH): `docs/REMOTE_ACCESS.md`
 - The submodule stays at official Ghostty v1.3.1; the armv7 fixes are applied
   from `patches/ghostty-v1.3.1-android.patch`.
 
