@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import androidx.compose.foundation.layout.*
@@ -85,6 +87,11 @@ class MainActivity : ComponentActivity() {
                                 terminalSession.cols = cols
                                 terminalSession.rows = rows
                                 terminalSession.start()
+                                // Close the app when the shell exits.
+                                lifecycleScope.launch {
+                                    terminalSession.isRunning.dropWhile { !it }.first { !it }
+                                    finishAndRemoveTask()
+                                }
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     terminalSession.chunks.collect { chunk ->
                                         view.queueEvent {
