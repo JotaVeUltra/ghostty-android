@@ -9,7 +9,7 @@ Built 2026-10-20 from `tapthaker/ghostty-android` @ `b68e170`
 - Installed APK (release, R8): `android/app/build/outputs/apk/release/app-release-profile-signed.apk`
   (7,624,059 bytes), signed with the debug key
 - Release SHA-256: `4b6e80d3b4c1cc7c7820851a60ce34b3c4abea54a8987d04778c3773defc2b33`
-- Installed as `com.ghostty.android` 0.1.0 on `3300b66131e37483`
+- Installed as `com.ghostty.android` 0.1.0 on the target device
   (release: 19 MB on disk; debug: 87 MB)
 - Native: `lib/armeabi-v7a/libghostty_renderer.so` (11 MB stripped),
   `libghostty-vt.so` (214 KB stripped), `libpty_shell.so` (5.6 KB)
@@ -57,14 +57,16 @@ earlier Jan-2026 build used `4e5c1dcdc` (2026-01-16).
 
 ## Toolchain
 
+Paths below use `<toolchain>` and `<android-sdk>` for wherever you install these on your machine.
+
 | Component | Version / path |
 |---|---|
-| JDK | Temurin 17.0.20.1 (`/home/jotav/toolchain/jdk`) |
-| Gradle | 8.11 (`/home/jotav/toolchain/gradle-8.11`) |
-| Android SDK | platform 35, build-tools 35.0.0 (`/home/jotav/android-sdk`) |
-| NDK | r29 `29.0.14206865` (`/home/jotav/toolchain/android-ndk-r29`) |
-| Zig | 0.15.2 (`/home/jotav/toolchain/zig`) |
-| patchelf | 0.18.0 (`/home/jotav/toolchain/patchelf`) |
+| JDK | Temurin 17.0.20.1 (`<toolchain>/jdk`) |
+| Gradle | 8.11 (`<toolchain>/gradle-8.11`) |
+| Android SDK | platform 35, build-tools 35.0.0 (`<android-sdk>`) |
+| NDK | r29 `29.0.14206865` (`<toolchain>/android-ndk-r29`) |
+| Zig | 0.15.2 (`<toolchain>/zig`) |
+| patchelf | 0.18.0 (`<toolchain>/patchelf`) |
 
 ## Local patches
 
@@ -85,11 +87,12 @@ earlier Jan-2026 build used `4e5c1dcdc` (2026-01-16).
 ## Build commands
 
 ```bash
-export JAVA_HOME=/home/jotav/toolchain/jdk
-export ANDROID_HOME=/home/jotav/android-sdk
-export ANDROID_NDK_ROOT=/home/jotav/toolchain/android-ndk-r29
-export ANDROID_NDK_HOME=/home/jotav/toolchain/android-ndk-r29  # v1.3.1 detection
-export PATH=$JAVA_HOME/bin:/home/jotav/toolchain/zig:/home/jotav/toolchain/gradle-8.11/bin:$PATH
+TOOLCHAIN=/path/to/toolchain   # directory holding the tools above
+export JAVA_HOME=$TOOLCHAIN/jdk
+export ANDROID_HOME=/path/to/android-sdk
+export ANDROID_NDK_ROOT=$TOOLCHAIN/android-ndk-r29
+export ANDROID_NDK_HOME=$TOOLCHAIN/android-ndk-r29  # v1.3.1 detection
+export PATH=$JAVA_HOME/bin:$TOOLCHAIN/zig:$TOOLCHAIN/gradle-8.11/bin:$PATH
 
 cd work/ghostty-android
 git -C libghostty-vt checkout -f v1.3.1
@@ -183,7 +186,7 @@ The following local changes connect them:
 Build the helper with:
 
 ```bash
-NDK=/home/jotav/toolchain/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64
+NDK=$TOOLCHAIN/android-ndk-r29/toolchains/llvm/prebuilt/linux-x86_64
 $NDK/bin/armv7a-linux-androideabi24-clang -O2 -fPIE -pie \
   -o android/app/src/main/jniLibs/armeabi-v7a/libpty_shell.so \
   android/app/src/main/cpp/pty_shell.c
