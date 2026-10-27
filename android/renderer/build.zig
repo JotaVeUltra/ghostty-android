@@ -29,7 +29,31 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        // Link libc (required for JNI)
+        .link_libc = true,
     });
+
+    // C headers (JNI, GLES, android/log), translated at build time
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // translate-c does not read the --libc file, so the NDK sysroot is passed explicitly.
+    const sysroot_opt = b.option([]const u8, "sysroot", "NDK sysroot (.../toolchains/llvm/prebuilt/linux-x86_64/sysroot)");
+    const triple = switch (target_info.cpu.arch) {
+        .arm => "arm-linux-androideabi",
+        .aarch64 => "aarch64-linux-android",
+        .x86_64 => "x86_64-linux-android",
+        .x86 => "i686-linux-android",
+        else => @panic("unsupported Android architecture"),
+    };
+    if (sysroot_opt) |sysroot| {
+        translate_c.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include/{s}", .{ sysroot, triple }) });
+        translate_c.addSystemIncludePath(.{ .cwd_relative = b.fmt("{s}/usr/include", .{sysroot}) });
+    }
+    const c_mod = translate_c.createModule();
+    lib_mod.addImport("c", c_mod);
 
     // Add FreeType module
     lib_mod.addImport("freetype", freetype_dep.module("freetype"));
@@ -44,11 +68,15 @@ pub fn build(b: *std.Build) void {
         .linkage = .dynamic,
     });
 
-    // Link libc (required for JNI)
-    lib.linkLibC();
-
     // Link FreeType library
-    lib.linkLibrary(freetype_dep.artifact("freetype"));
+    lib_mod.linkLibrary(freetype_dep.artifact("freetype"));
+
+    // The NDK sysroot has stubs for these, so DT_NEEDED is set at link time.
+    if (sysroot_opt) |sysroot| {
+        lib_mod.addLibraryPath(.{ .cwd_relative = b.fmt("{s}/usr/lib/{s}/{d}", .{ sysroot, triple, target_info.os.version_range.linux.android }) });
+        lib_mod.linkSystemLibrary("GLESv3", .{});
+        lib_mod.linkSystemLibrary("log", .{});
+    }
 
     // Note: We need OpenGL ES 3.1 symbols, but can't link them during cross-compilation.
     // The symbols will be left undefined and must be resolved by the Android dynamic linker.
@@ -56,7 +84,7 @@ pub fn build(b: *std.Build) void {
 
     // Add include paths for libghostty-vt headers (if needed in future)
     const ghostty_include = b.path("../../libghostty-vt/include");
-    lib.addIncludePath(ghostty_include);
+    lib_mod.addIncludePath(ghostty_include);
 
     // Install the shared library
     b.installArtifact(lib);
@@ -67,6 +95,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_mod.addImport("c", c_mod);
 
     const lib_unit_tests = b.addTest(.{
         .name = "renderer_tests",

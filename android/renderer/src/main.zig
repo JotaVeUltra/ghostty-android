@@ -7,11 +7,7 @@
 ///! allowing multiple GLSurfaceViews (e.g., in RecyclerView) to coexist.
 
 const std = @import("std");
-const c = @cImport({
-    @cInclude("jni.h");
-    @cInclude("GLES3/gl31.h");
-    @cInclude("android/log.h");
-});
+const c = @import("c");
 
 const jni = @import("jni_bridge.zig");
 const Renderer = @import("renderer.zig");
@@ -78,7 +74,7 @@ const log = struct {
 };
 
 // Global allocator
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa: std.heap.DebugAllocator(.{}) = .init;
 
 // Renderer state - now stored per-instance
 const RendererState = struct {
@@ -94,7 +90,7 @@ const RendererState = struct {
 var renderer_map: std.AutoHashMap(u64, *RendererState) = undefined;
 var renderer_map_initialized: bool = false;
 var next_handle: u64 = 1;
-var map_mutex: std.Thread.Mutex = .{};
+var map_mutex: @import("mutex.zig") = .{};
 
 fn ensureMapInitialized() void {
     if (!renderer_map_initialized) {

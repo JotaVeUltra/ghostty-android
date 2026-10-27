@@ -5,9 +5,7 @@
 
 const std = @import("std");
 
-pub const c = @cImport({
-    @cInclude("GLES3/gl31.h");
-});
+pub const c = @import("c");
 
 const log = std.log.scoped(.gl_es);
 

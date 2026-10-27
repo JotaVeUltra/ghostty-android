@@ -243,3 +243,43 @@ reporting (wheel scrolling is implemented), and the key encoder JNI path is
 still unused. The test harness is still present but no longer reachable.
 Back/relaunch now starts a fresh shell; previous scrollback is not preserved
 because the activity and PTY are destroyed.
+
+## Upgrade to Ghostty v1.4.0 (2026-10-27, app 0.2.0)
+
+Core is now **v1.4.0** (tag `83fb95624`). The v1.4.0 tree needs **Zig 0.17.0** (`minimum_zig_version`),
+so the renderer was ported from 0.15. Built with Zig 0.17.0, NDK r28 (`28.2.13676358`), JDK 21 and
+Gradle 8.11 (downloaded, checksum verified). patchelf is not needed.
+
+Changes versus the 1.3.1 build:
+
+- `patches/ghostty-v1.4.0-android.patch` replaces the 1.3.1 patch. The `formatter.zig` casts are now
+  upstream. Still needed: the `lib_vt.zig` cursor-style re-export, and `pkg/freetype/build.zig` passes
+  the `GHOSTTY_ANDROID_LIBC` file to translate-c (it does not read `--libc`).
+- `libghostty-vt` is built with `zig build -Demit-lib-vt=true ...` (the `lib-vt` step is gone).
+- The `--libc` file needs `darwin_sdk_dir=` and a non-empty `gcc_dir=` for Zig 0.17, and
+  `static_crt_dir` points at `lib/clang/<ver>/lib/linux/arm` (no `armv7` symlink).
+- Renderer: `@cImport` replaced by `src/c.h` through `b.addTranslateC` (needs `-Dsysroot=<NDK sysroot>`);
+  `std.Thread.Mutex` replaced by `src/mutex.zig` (pthread); `std.time.nanoTimestamp` by `src/clock.zig`;
+  `Terminal.init` takes `std.Io` (`Io.Threaded.global_single_threaded`); `Terminal.resize` takes a
+  `Resize` struct; cells expose `content.codepoint.data`; pages come from `node.page()`; `TypeInfo`
+  uses `field_names`/`field_types`. `GLESv3` and `log` are linked at build time, so DT_NEEDED is set
+  without patchelf.
+
+Build, from `android/renderer` (sysroot is `$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot`):
+
+```bash
+export GHOSTTY_ANDROID_LIBC=<abs path to build/android-armeabi-v7a-libc.txt>
+zig build -Dtarget=arm-linux-androideabi.24 -Doptimize=ReleaseFast -Dsysroot=<sysroot> \
+  --cache-dir ../../build/renderer-cache-armeabi-v7a --libc $GHOSTTY_ANDROID_LIBC
+```
+
+Then strip and stage the libraries as above, and run
+`gradle assembleRelease -x buildNativeLibs --no-daemon`. The release APK is unsigned: `zipalign -p 4`,
+then `apksigner sign` with `~/.android/debug.keystore`.
+
+The 1.3.1 app was signed with a different debug key, so Android refused an in-place update
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). Installing 0.2.0 meant uninstalling 0.1.0 first (only the default
+`.mkshrc` was lost). Later upgrades with this machine's debug key update in place.
+
+Verified on the phone: renderer initialises, shaders link, shell starts, prompt and cursor render.
+The visual-regression harness and the benchmark above were not re-run.

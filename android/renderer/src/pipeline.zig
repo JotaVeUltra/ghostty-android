@@ -115,18 +115,19 @@ pub fn autoConfigureAttributes(
 
     const stride: gl.c.GLsizei = @intCast(@sizeOf(T));
 
-    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
+    const info = @typeInfo(T).@"struct";
+    inline for (info.field_names, info.field_types, 0..) |field_name, field_type, i| {
         const index: u32 = @intCast(i);
         gl.VertexArray.enableAttribArray(index);
         gl.VertexArray.attribDivisor(index, divisor);
 
-        const offset = @offsetOf(T, field.name);
+        const offset = @offsetOf(T, field_name);
 
         // Get the underlying type (unwrap packed structs and enums)
-        const FT = switch (@typeInfo(field.type)) {
-            .@"struct" => |s| s.backing_integer orelse field.type,
+        const FT = switch (@typeInfo(field_type)) {
+            .@"struct" => |s| s.backing_integer orelse field_type,
             .@"enum" => |e| e.tag_type,
-            else => field.type,
+            else => field_type,
         };
 
         // Determine size and inner type for arrays

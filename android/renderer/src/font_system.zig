@@ -9,9 +9,7 @@ const freetype = @import("freetype");
 const shaders = @import("shaders.zig");
 const embedded_fonts = @import("embedded_fonts.zig");
 const font_metrics = @import("font_metrics.zig");
-const c = @cImport({
-    @cInclude("android/log.h");
-});
+const c = @import("c");
 
 const log = std.log.scoped(.font_system);
 

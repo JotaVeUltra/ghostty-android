@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const gl = @import("gl_es.zig");
+const clock = @import("clock.zig");
 const Pipeline = @import("pipeline.zig");
 const Buffer = @import("buffer.zig").Buffer;
 const Texture = @import("texture.zig");
@@ -42,7 +43,7 @@ terminal_manager: TerminalManager,
 
 /// Mutex for thread-safe access to terminal_manager
 /// Allows processInput to be called from any thread while render runs on GL thread
-terminal_mutex: std.Thread.Mutex = .{},
+terminal_mutex: @import("mutex.zig") = .{},
 
 /// Surface dimensions in pixels
 width: u32 = 0,
@@ -126,7 +127,7 @@ current_fps: u32 = 0,
 
 /// Frame timing diagnostics
 last_render_time: i64 = 0,
-frame_times: [60]i64 = [_]i64{0} ** 60,  // Last 60 frame times in nanoseconds
+frame_times: [60]i64 = @splat(0),  // Last 60 frame times in nanoseconds
 frame_time_index: u32 = 0,
 slow_frame_count: u32 = 0,  // Frames taking > 16.6ms (60fps threshold)
 current_jitter_ms: f32 = 0.0,  // Current frame jitter (max - min)
@@ -693,7 +694,7 @@ fn updateAnimations(self: *Self, now: i64) void {
 /// Render a frame
 pub fn render(self: *Self) !void {
     // Update FPS counter
-    const now: i64 = @truncate(std.time.nanoTimestamp());
+    const now: i64 = @truncate(clock.nanoTimestamp());
     self.frame_count += 1;
 
     // Frame timing diagnostics - measure time since last render
@@ -765,9 +766,9 @@ pub fn render(self: *Self) !void {
     // We still render the existing buffers to avoid visual freeze.
     if (!self.terminal_manager.isSynchronizedOutputActive()) {
         // Sync renderer state from terminal (extract cells and update GPU buffers)
-        const sync_start: i64 = @truncate(std.time.nanoTimestamp());
+        const sync_start: i64 = @truncate(clock.nanoTimestamp());
         try self.syncFromTerminal();
-        const sync_end: i64 = @truncate(std.time.nanoTimestamp());
+        const sync_end: i64 = @truncate(clock.nanoTimestamp());
         self.sync_time_ns = sync_end - sync_start;
     }
 
@@ -1424,7 +1425,7 @@ pub fn setShowFps(self: *Self, show: bool) void {
 
 /// Set the microphone indicator state
 pub fn setMicIndicatorState(self: *Self, state: u8) void {
-    const new_state = std.meta.intToEnum(MicIndicatorState, state) catch .off;
+    const new_state = std.enums.fromInt(MicIndicatorState, state) orelse .off;
     log.info("setMicIndicatorState: {} -> {}", .{ self.mic_indicator_state, new_state });
     self.mic_indicator_state = new_state;
     // Reset pulse animation when state changes to active or processing
@@ -1634,7 +1635,7 @@ pub fn startRipple(self: *Self, center_x: f32, center_y: f32, max_radius: f32) v
     self.uniforms.ripple_center = .{ center_x, center_y };
     self.uniforms.ripple_max_radius = max_radius;
     self.uniforms.ripple_progress = 0.0;
-    self.ripple_start_time_ns = @truncate(std.time.nanoTimestamp());
+    self.ripple_start_time_ns = @truncate(clock.nanoTimestamp());
 }
 
 /// Update the ripple animation progress.
@@ -1660,7 +1661,7 @@ pub const SweepDirection = enum(u32) {
 pub fn startSweep(self: *Self, direction: u32) void {
     self.uniforms.sweep_direction = direction;
     self.uniforms.sweep_progress = 0.0;
-    self.sweep_start_time_ns = @truncate(std.time.nanoTimestamp());
+    self.sweep_start_time_ns = @truncate(clock.nanoTimestamp());
 }
 
 /// Update the sweep animation progress.

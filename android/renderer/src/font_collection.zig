@@ -225,7 +225,7 @@ pub const FontCollection = struct {
     ) !FontFace {
         // Create null-terminated path
         var path_buf: [256]u8 = undefined;
-        const path_z = try std.fmt.bufPrintZ(&path_buf, "{s}", .{path});
+        const path_z = try std.fmt.bufPrintSentinel(&path_buf, "{s}", .{path}, 0);
 
         var face = try self.library.initFace(path_z, 0);
         errdefer face.deinit();

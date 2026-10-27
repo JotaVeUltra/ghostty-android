@@ -27,7 +27,9 @@ saved_viewport_anchor: ?ghostty_vt.PageList.Pin = null,
 pub fn init(allocator: Allocator, cols: u16, rows: u16) !TerminalManager {
     log.info("Initializing terminal: {}x{}", .{ cols, rows });
 
-    const terminal = try ghostty_vt.Terminal.init(allocator, .{
+    // The terminal only needs an Io for page compression and Kitty images; the renderer has no
+    // event loop, so the shared single-threaded instance is enough.
+    const terminal = try ghostty_vt.Terminal.init(std.Io.Threaded.global_single_threaded.io(), allocator, .{
         .cols = @intCast(cols),
         .rows = @intCast(rows),
         .default_modes = .{
@@ -62,7 +64,7 @@ pub fn processInput(self: *TerminalManager, data: []const u8) !void {
     var stream = self.terminal.vtStream();
     defer stream.deinit();
 
-    try stream.nextSlice(data);
+    stream.nextSlice(data);
     log.debug("Processed {} bytes of input", .{data.len});
 }
 
@@ -86,8 +88,7 @@ pub fn resize(self: *TerminalManager, cols: u16, rows: u16) !void {
     // Perform the resize
     try self.terminal.resize(
         self.allocator,
-        @intCast(cols),
-        @intCast(rows),
+        .{ .cols = @intCast(cols), .rows = @intCast(rows) },
     );
 
     // Check state after resize
@@ -391,7 +392,7 @@ pub fn getHyperlinkAtCell(self: *TerminalManager, col: u16, row: u16) !?[]const 
     }
 
     // Get the page for this row
-    const page_ptr = &row_pins[row].node.data;
+    const page_ptr = row_pins[row].node.page();
 
     // Get the row and cell at the position
     const rac = page_ptr.getRowAndCell(col, row);

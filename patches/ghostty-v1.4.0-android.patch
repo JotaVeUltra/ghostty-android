@@ -1,0 +1,32 @@
+diff --git a/pkg/freetype/build.zig b/pkg/freetype/build.zig
+index 8272700..ccab773 100644
+--- a/pkg/freetype/build.zig
++++ b/pkg/freetype/build.zig
+@@ -45,6 +45,11 @@ pub fn build(b: *std.Build) !void {
+         .link_libs = if (lib == .static) &.{lib.static} else &.{},
+         .include_paths = &.{b.path("")},
+         .default_init = true,
++        // Android: translate-c does not see the --libc file, so pass it explicitly.
++        .libc_file = if (b.graph.environ_map.get("GHOSTTY_ANDROID_LIBC")) |p|
++            .{ .direct = .{ .cwd_relative = p } }
++        else
++            .detect_darwin,
+     });
+ }
+ 
+diff --git a/src/lib_vt.zig b/src/lib_vt.zig
+index 0625208..cb8f1bc 100644
+--- a/src/lib_vt.zig
++++ b/src/lib_vt.zig
+@@ -85,6 +85,11 @@ pub const Parser = terminal.Parser;
+ pub const Pin = PageList.Pin;
+ pub const Point = point.Point;
+ pub const RenderState = terminal.RenderState;
++
++// Re-export the renderer cursor-style helper for external renderers.
++pub const RendererCursorStyleOptions = @import("renderer/cursor.zig").StyleOptions;
++pub const RendererCursorStyle = @import("renderer/cursor.zig").Style;
++pub const rendererCursorStyle = @import("renderer/cursor.zig").style;
+ pub const Screen = terminal.Screen;
+ pub const ScreenSet = terminal.ScreenSet;
+ pub const Selection = terminal.Selection;
